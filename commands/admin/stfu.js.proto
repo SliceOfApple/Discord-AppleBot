@@ -1,0 +1,25 @@
+const { SlashCommandBuilder, ChannelType, PermissionFlagsBits } = require('discord.js');
+
+module.exports = {
+	data: new SlashCommandBuilder()
+        // Pre-requisites
+        .setDMPermission(false)
+        .setDefaultMemberPermissions(PermissionFlagsBits.MuteMembers)
+
+        // Command Description
+        .setName('stfu')
+		.setDescription('Mute people ONLY when they start speaking; unmutes them when they stop')
+        
+        // Arguments
+        .addMentionableOption(option => option /** Source VC: Origin*/
+            .setName('user')
+            .setDescription('User you want to stfu.')
+            .setRequired(true)
+        ),
+	async execute(interaction) {
+        const member = interaction.options.getMember('user');
+        member.voice.setMute(true);
+
+		await interaction.reply({ content: `Pong pong!`, ephemeral: true });
+	},
+};
