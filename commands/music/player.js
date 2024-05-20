@@ -1,4 +1,3 @@
-const fs = require('fs');
 const play = require('play-dl');
 
 const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
@@ -38,7 +37,6 @@ const EMBED_QUEUE = (guild, firstVideoThumbnail, queue, sender) =>
         .setTitle('Queue')
         .setAuthor({ name: guild.name, iconURL: guild.iconURL() })
         .setThumbnail(firstVideoThumbnail)
-        .setThumbnail()
         .addFields(queue)
         .setTimestamp()
         .setFooter({ text: sender.name, iconURL: sender.iconURL });
@@ -93,6 +91,9 @@ module.exports = {
                     if (!connection) return await interaction.reply({ content: 'You need to enter a query and select a corresponding result!', ephemeral: true })
                     return await interaction.reply({ content: connection.state.subscription.player.unpause() ? 'Playback resumed.' : 'The bot is currently playing nothing!', ephemeral: true });
                 }
+                else if (youtubeUrl.endsWith('error')) {
+                    return await interaction.reply({ content: `Supplied ${youtubeUrl.startsWith('video') ? 'Video' : 'Playlist'} URL invalid. Check your input.`, ephemeral: true })
+                }
 
                 // Prepare YouTube video data stream.
                 let stream, yt_info, entry;
@@ -122,23 +123,20 @@ module.exports = {
                             guildId: interaction.guildId,
                             adapterCreator: interaction.guild.voiceAdapterCreator,
                         });
-                    resource.volume.setVolume(0.5); // Don't wanna ear rape everyone in the call
+                    resource.volume.setVolume(0.25); // Don't wanna ear rape everyone in the call
                     //player.play(resource);
                     connection.subscribe(player);
 
                     player.on(AudioPlayerStatus.Playing, async (oldState, newState) => {
                         yt_info = guildSongListMap.get(interaction.guildId)[0];
-
-                        await interaction.channel.send(
-                            { 
-                                embeds: [EMBED_PLAYER_EVENT(
-                                    'Now Playing',
-                                    { name: yt_info.channel.name, iconURL: yt_info.channel.icons[0].url, anchor: yt_info.channel.url }, 
-                                    { name: yt_info.title, duration: '**[' + yt_info.durationRaw + ']**', URL: yt_info.url, thumbnail: yt_info.thumbnails[yt_info.thumbnails.length - 1].url },
-                                    { name: interaction.user.displayName, iconURL: interaction.user.avatarURL() }
-                                )] 
-                            }
-                        );
+                        var embed_NowPlaying = 
+                            EMBED_PLAYER_EVENT(
+                                'Now Playing',
+                                { name: yt_info.channel.name, iconURL: yt_info.channel.icons[0].url, anchor: yt_info.channel.url }, 
+                                { name: yt_info.title, duration: '**[' + yt_info.durationRaw + ']**', URL: yt_info.url, thumbnail: yt_info.thumbnails[yt_info.thumbnails.length - 1].url },
+                                { name: interaction.user.displayName, iconURL: interaction.user.avatarURL() }
+                            )
+                        if (entry.length > 1) await interaction.channel.send({ embeds: [embed_NowPlaying] })
 
                         console.log('Audio player is in the Playing state!');
                     });
@@ -157,7 +155,7 @@ module.exports = {
                         stream = await play.stream(nextSong.url);
                         yt_info = (await play.video_info(nextSong.url)).video_details;
                         resource = createAudioResource(stream.stream, { inputType: stream.type, inlineVolume: true });
-                        resource.volume.setVolume(0.5)
+                        resource.volume.setVolume(0.25)
                         player.play(resource);
                         connection.subscribe(player);
                     });
@@ -178,18 +176,16 @@ module.exports = {
                     guildSongListMap.set(interaction.guildId, entry);
                 }
 
-                if (entry.length  > 1) { // Display 'Added to Queue' notification only if the player already has a song playing to avoid spam when playing one-shots.
-                    await interaction.reply(
-                        {
-                            embeds: [EMBED_PLAYER_EVENT(
-                                'Added to Queue',
-                                { name: yt_info.channel.name, iconURL: yt_info.channel.icons[0].url, anchor: yt_info.channel.url }, 
-                                { name: yt_info.title, duration: '**[' + yt_info.durationRaw + ']**', URL: yt_info.url, thumbnail: yt_info.thumbnails[yt_info.thumbnails.length - 1].url },
-                                { name: interaction.user.displayName, iconURL: interaction.user.avatarURL() }
-                            )]
-                        }
-                    );
-                }
+                await interaction.reply(
+                    {
+                        embeds: [EMBED_PLAYER_EVENT(
+                            (entry.length > 1) ? 'Added to Queue' : 'Now Playing',
+                            { name: yt_info.channel.name, iconURL: yt_info.channel.icons[0].url, anchor: yt_info.channel.url }, 
+                            { name: yt_info.title, duration: '**[' + yt_info.durationRaw + ']**', URL: yt_info.url, thumbnail: yt_info.thumbnails[yt_info.thumbnails.length - 1].url },
+                            { name: interaction.user.displayName, iconURL: interaction.user.avatarURL() }
+                        )]
+                    }
+                );
                 break;
             case 'pause':
                 if (!interaction.member.voice.channel) return await interaction.reply({ content: 'You must be in a voice channel to use this command!', ephemeral: true });
@@ -212,7 +208,7 @@ module.exports = {
                 else {
                     let playbackDuration = getVoiceConnection(interaction.guildId).state.subscription.player.state.playbackDuration / 1000;
                     let queue = guildQueue.map((video, index) => (
-                        { 
+                        {
                             name: index === 0 ? "Now Playing" : (index === 1 ? "Up Next" : (index - 1 + '. ' + video.title)), 
                             value: index < 2 ? video.title : '\u200b',
                             inline: index === 0
@@ -223,7 +219,7 @@ module.exports = {
                     // Insert progress bar after first entry (currently playing song) on the same line.
                     queue.splice(1, 0, { 
                         name: `${hoursMinutesSecondsFormat(playbackDuration)}/${hoursMinutesSecondsFormat(guildQueue[0].durationInSec)}`, 
-                        value:  '`[' + '/'.repeat(playedToTotalRatio) + '-'.repeat(8 - playedToTotalRatio) + ']`',
+                        value:  '`[' + '◼'.repeat(playedToTotalRatio) + '️◻'.repeat(8 - playedToTotalRatio) + ']`',
                         inline: true
                     });
 
@@ -231,7 +227,7 @@ module.exports = {
                         { 
                             embeds: [EMBED_QUEUE(
                                 interaction.guild,
-                                guildQueue[0].thumbnail,
+                                guildQueue[0].thumbnails[guildQueue.length - 1].url,
                                 queue,
                                 { name: interaction.user.displayName, iconURL: interaction.user.avatarURL() }
                             )] 
@@ -248,10 +244,31 @@ module.exports = {
         // if (focusedOption.name === 'query') {
             if (focusedOption.value === '') return await interaction.respond([]); // Return empty list for a blank query.
 
-            if (ytUrlRegex.test(focusedOption.value)) { // Is a valid YouTube URL
-                let yt_info = await play.video_info(focusedOption.value);
+            if (ytUrlRegex.test(focusedOption.value)) { // Is a valid YouTube URL, be it a video or playlist link.
+                if (focusedOption.value.includes('watch')) {
+                    let video_info;
+                    try {
+                        video_info = await play.video_info(focusedOption.value);
+                    } catch (error) {
+                        await interaction.respond([{ name: 'Video not found.', value: 'video_url_error' }]);
+                    }
+                    await interaction.respond([{ name: checkIfTitleTooLong(`[${video_info.video_details.channel.name}] • ` + video_info.video_details.title), value: focusedOption.value }]);
+                }
+                else {
+                    let playlist_info;
+                    try {
+                        playlist_info = await play.playlist_info(focusedOption.value);
+                        console.log(playlist_info);
+                    } catch (error) {
+                        await interaction.respond([{ name: 'Playlist not found.', value: 'playlist_url_error' }]);
+                    }
+                    await interaction.respond([{ name: '[Playlist] "' + playlist_info.title + '" containing ' + playlist_info.videoCount + ((playlist_info.videoCount > 1) ? ' videos.' : ' video.'), value: focusedOption.value }]);
+                }
+                // If the video or playlist URL is not valid, automatically return an error to show the user. No need to do anything here :)
+                
+                // (await play.playlist_info(focusedOption.value))
 
-                await interaction.respond([{ name: checkIfTitleTooLong(`[${yt_info.video_details.channel.name}] • ` + yt_info.video_details.title), value: focusedOption.value }]);
+                // await interaction.respond([{ name: checkIfTitleTooLong(`[${query_info.video_details.channel.name}] • ` + query_info.video_details.title), value: focusedOption.value }]);
             }
             else {
                 let ytVideoSearchList = await play.search(focusedOption.value, { limit: 25 });
